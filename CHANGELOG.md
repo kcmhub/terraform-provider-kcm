@@ -9,4 +9,6 @@
 - Data source `kcm_object`.
 - Provider settings: `endpoint`, `token`, `iac_source`, `allow_destroy` (or KCM_ENDPOINT, KCM_TOKEN, KCM_IAC_SOURCE,
   KCM_ALLOW_DESTROY).
+- `kcm_kafka_cluster`: `verify_broker_host_name` (checks the broker certificates against the broker host names) and
+  `ssl_truststore_type` (`JKS`, `PKCS12` or `PEM`).
 - Needs KCM 1.6.0 or later.

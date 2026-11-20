@@ -100,12 +100,14 @@ func planOf(t *testing.T, r *kindResource, values map[string]tftypes.Value) tfsd
 func TestADocumentHoldsTheSetAttributesAndSecretReferences(t *testing.T) {
 	cluster := kindByType(t, "kafka_cluster")
 	plan := planOf(t, cluster, map[string]tftypes.Value{
-		"name":               tftypes.NewValue(tftypes.String, "prod-payments"),
-		"group":              tftypes.NewValue(tftypes.String, "prod"),
-		"bootstrap_servers":  tftypes.NewValue(tftypes.String, "b1:9093"),
-		"sasl_username":      tftypes.NewValue(tftypes.String, "kcm"),
-		"sasl_password_file": tftypes.NewValue(tftypes.String, "payments-sasl"),
-		"metrics_enabled":    tftypes.NewValue(tftypes.Bool, true),
+		"name":                    tftypes.NewValue(tftypes.String, "prod-payments"),
+		"group":                   tftypes.NewValue(tftypes.String, "prod"),
+		"bootstrap_servers":       tftypes.NewValue(tftypes.String, "b1:9093"),
+		"sasl_username":           tftypes.NewValue(tftypes.String, "kcm"),
+		"sasl_password_file":      tftypes.NewValue(tftypes.String, "payments-sasl"),
+		"metrics_enabled":         tftypes.NewValue(tftypes.Bool, true),
+		"ssl_truststore_type":     tftypes.NewValue(tftypes.String, "PEM"),
+		"verify_broker_host_name": tftypes.NewValue(tftypes.Bool, false),
 		"other_configs": tftypes.NewValue(tftypes.Map{ElementType: tftypes.String},
 			map[string]tftypes.Value{"client.dns.lookup": tftypes.NewValue(tftypes.String, "use_all_dns_ips")}),
 		"consumer_group_prefix": tftypes.NewValue(tftypes.String, tftypes.UnknownValue),
@@ -124,6 +126,9 @@ func TestADocumentHoldsTheSetAttributesAndSecretReferences(t *testing.T) {
 	}
 	if doc.Spec["metricsEnabled"] != true || doc.Spec["otherConfigs"].(map[string]string)["client.dns.lookup"] != "use_all_dns_ips" {
 		t.Errorf("spec %v", doc.Spec)
+	}
+	if doc.Spec["sslTruststoreType"] != "PEM" || doc.Spec["verifyBrokerHostName"] != false {
+		t.Errorf("TLS options %v", doc.Spec)
 	}
 	if _, set := doc.Spec["consumerGroupPrefix"]; set {
 		t.Error("an unknown attribute is left out")

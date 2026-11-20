@@ -74,6 +74,8 @@ var kinds = []*kindResource{
 			{attr: "sasl_password_file", path: p("sasl", "passwordFrom"), kind: secretFileField, description: "File of the secrets directory holding the SASL password."},
 			{attr: "ssl_truststore_file", path: p("sslTruststoreFrom"), kind: secretFileField, description: "Truststore file of the secrets directory (a new content in the same file is applied by the next apply)."},
 			{attr: "ssl_truststore_password_file", path: p("sslTruststorePasswordFrom"), kind: secretFileField, description: "File of the secrets directory holding the truststore password."},
+			{attr: "ssl_truststore_type", path: p("sslTruststoreType"), kind: stringField, description: "Format of the truststore: `JKS` (default), `PKCS12` or `PEM` (a bundle of PEM certificates, without password). Cannot be combined with `ssl.truststore.type` in `other_configs`."},
+			{attr: "verify_broker_host_name", path: p("verifyBrokerHostName"), kind: boolField, description: "Whether the Kafka clients check that the broker certificates match the broker host names. A new cluster checks them unless this is `false`; an existing cluster keeps its setting while this is not set. Confluent Cloud clusters always check them."},
 			{attr: "kerberos_service_name", path: p("kerberosServiceName"), kind: stringField, description: "Kerberos service name."},
 			{attr: "other_configs", path: p("otherConfigs"), kind: stringMapField, description: "Other client configurations, without secrets."},
 			{attr: "metrics_enabled", path: p("metricsEnabled"), kind: boolField, description: "Whether KCM collects the metrics of the cluster."},

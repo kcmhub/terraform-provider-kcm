@@ -197,6 +197,8 @@ resource "kcm_kafka_cluster" "kafka" {
   sasl_mechanism     = "PLAIN"
   sasl_username      = %q
   sasl_password_file = %q
+  ssl_truststore_type     = "PKCS12"
+  verify_broker_host_name = %t
   deletion_policy    = "Delete"
 }
 
@@ -224,7 +226,7 @@ resource "kcm_topic_metadata" "orders" {
     ownership      = { ownerTeam = "payments" }
   })
 }
-`, os.Getenv("KCM_ACC_KAFKA_BOOTSTRAP"), os.Getenv("KCM_ACC_KAFKA_USER"), os.Getenv("KCM_ACC_KAFKA_PASSWORD_FILE"),
+`, os.Getenv("KCM_ACC_KAFKA_BOOTSTRAP"), os.Getenv("KCM_ACC_KAFKA_USER"), os.Getenv("KCM_ACC_KAFKA_PASSWORD_FILE"), partitions == 1,
 			connections, partitions, retention, description)
 	}
 	resource.Test(t, resource.TestCase{
@@ -235,6 +237,8 @@ resource "kcm_topic_metadata" "orders" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr("kcm_kafka_cluster.kafka", "managed_by", "iac:terraform:acc-resources"),
 					resource.TestCheckResourceAttr("kcm_kafka_cluster.kafka", "sasl_password_file", os.Getenv("KCM_ACC_KAFKA_PASSWORD_FILE")),
+					resource.TestCheckResourceAttr("kcm_kafka_cluster.kafka", "ssl_truststore_type", "PKCS12"),
+					resource.TestCheckResourceAttr("kcm_kafka_cluster.kafka", "verify_broker_host_name", "true"),
 					resource.TestCheckResourceAttr("kcm_topic.orders", "topic_name", "tf-acc-orders"),
 					resource.TestCheckResourceAttr("kcm_topic.orders", "configs.retention.ms", "3600000"),
 					resource.TestCheckResourceAttr("kcm_topic_metadata.orders", "id", "TopicMetadata/tf-acc-orders"),
@@ -250,6 +254,7 @@ resource "kcm_topic_metadata" "orders" {
 			{
 				Config: config(2, "7200000", "Orders placed by the customers"),
 				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("kcm_kafka_cluster.kafka", "verify_broker_host_name", "false"),
 					resource.TestCheckResourceAttr("kcm_topic.orders", "partitions", "2"),
 					resource.TestCheckResourceAttr("kcm_topic.orders", "configs.retention.ms", "7200000"),
 				),
