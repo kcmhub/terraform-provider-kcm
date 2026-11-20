@@ -1,0 +1,7 @@
+/terraform-provider-kcm
+/terraform-provider-kcm.exe
+/dist/
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
