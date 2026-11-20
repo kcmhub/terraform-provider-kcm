@@ -23,6 +23,17 @@ type Document struct {
 	Kind       string                 `json:"kind"`
 	Metadata   Metadata               `json:"metadata"`
 	Spec       map[string]interface{} `json:"spec"`
+	// Status is set by KCM on the read of one object (never sent): the uids of the object and of what it belongs to.
+	Status *Status `json:"status,omitempty"`
+}
+
+// Status holds the stable uids of an object, outside its spec so that a declaration stays portable: UID is the uid
+// of the object itself (environments, Kafka clusters, connections), ClusterUID and EnvironmentUID those of what it
+// belongs to.
+type Status struct {
+	UID            string `json:"uid,omitempty"`
+	EnvironmentUID string `json:"environmentUid,omitempty"`
+	ClusterUID     string `json:"clusterUid,omitempty"`
 }
 
 // Metadata names the object within its kind; ManagedBy is set by KCM on read.
@@ -164,6 +175,41 @@ func (c *Client) PlanDocuments(ctx context.Context, docs []*Document) (*Plan, er
 		return nil, err
 	}
 	return &plan, nil
+}
+
+// Environment is a KCM group as the REST API of KCM lists it.
+type Environment struct {
+	ID             int64  `json:"id"`
+	Name           string `json:"name"`
+	Color          string `json:"color"`
+	EnvironmentUID string `json:"environmentUid"`
+}
+
+// Cluster is a Kafka cluster as the REST API of KCM lists it.
+type Cluster struct {
+	ID              int64  `json:"id"`
+	ClusterUID      string `json:"clusterUid"`
+	ClusterName     string `json:"clusterName"`
+	KcmGroupID      int64  `json:"kcmGroupId"`
+	BootstrapServer string `json:"bootstrapServer"`
+}
+
+// Environments lists the environments (KCM groups) the token may see.
+func (c *Client) Environments(ctx context.Context) ([]Environment, error) {
+	var environments []Environment
+	if err := c.do(ctx, http.MethodGet, "/api/v1/groups", nil, nil, &environments); err != nil {
+		return nil, err
+	}
+	return environments, nil
+}
+
+// Clusters lists the Kafka clusters of an environment the token may see.
+func (c *Client) Clusters(ctx context.Context, environmentID int64) ([]Cluster, error) {
+	var clusters []Cluster
+	if err := c.do(ctx, http.MethodGet, "/api/v1/groups/"+strconv.FormatInt(environmentID, 10)+"/kafka-clusters", nil, nil, &clusters); err != nil {
+		return nil, err
+	}
+	return clusters, nil
 }
 
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body, out interface{}) error {

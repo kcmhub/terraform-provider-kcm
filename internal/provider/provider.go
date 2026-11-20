@@ -127,5 +127,5 @@ func (p *kcmProvider) Resources(_ context.Context) []func() resource.Resource {
 }
 
 func (p *kcmProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	return []func() datasource.DataSource{newObjectDataSource}
+	return []func() datasource.DataSource{newObjectDataSource, newEnvironmentDataSource, newClusterDataSource}
 }

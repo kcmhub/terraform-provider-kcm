@@ -27,6 +27,11 @@ resource "kcm_topic" "orders" {
 }
 ```
 
+A cluster, a connection, a topic or topic metadata can name the object it belongs to by its stable `uid` instead of by
+names (`environment_uid`, `cluster_uid`): the uid does not change when the object is renamed in KCM, and Terraform creates
+a cluster before its topic. The `kcm_environment` and `kcm_kafka_cluster` data sources look up an existing object by name
+or by uid. See the README.
+
 ## Schema
 
 - `endpoint` (String) Base URL of KCM. Environment variable `KCM_ENDPOINT`.

@@ -14,10 +14,23 @@ func deletionPolicy() field {
 	return field{attr: "deletion_policy", path: p("deletionPolicy"), kind: stringField, description: deletionPolicyDoc}
 }
 
+// The Kafka cluster of a child object is referenced by names (`cluster`) or by uid (`cluster_uid`): the uid does not
+// change when the cluster or its environment is renamed, and ties the order of the changes (the cluster first) to the
+// resource that gives it.
 func clusterRef() field {
-	return field{attr: "cluster", path: p("cluster"), kind: stringField, required: true, forceNew: true, scopePath: true,
-		description: "Kafka cluster, as `/groups/{group}/clusters/{cluster}` (names percent-encoded)."}
+	return field{attr: "cluster", path: p("cluster"), kind: stringField, forceNew: true, scopePath: true, ref: true, refAlt: "cluster_uid",
+		description: "Kafka cluster, as `/groups/{group}/clusters/{cluster}` (names percent-encoded). Exactly one of `cluster` " +
+			"and `cluster_uid` is set."}
 }
+
+func clusterUIDRef() field {
+	return field{attr: "cluster_uid", path: p("clusterUid"), kind: stringField, forceNew: true, ref: true, uidRef: true, refAlt: "cluster",
+		description: "Uid of the Kafka cluster (`kcm_kafka_cluster.<name>.uid`, or the `kcm_kafka_cluster` data source). It " +
+			"does not change when the cluster or its environment is renamed. Exactly one of `cluster` and `cluster_uid` is set."}
+}
+
+// childClusterAlternatives are the attributes of the objects that belong to a Kafka cluster.
+var childClusterAlternatives = [][2]string{{"cluster", "cluster_uid"}}
 
 var kinds = []*kindResource{
 	{
@@ -52,8 +65,9 @@ var kinds = []*kindResource{
 		},
 	},
 	{
-		typeName: "group", kind: "KcmGroup",
-		description: "A KCM group (Team and Enterprise editions).",
+		typeName: "group", kind: "KcmGroup", hasUID: true,
+		description: "A KCM group, an environment (Team and Enterprise editions). `uid` is its stable identifier, which " +
+			"`kcm_kafka_cluster` takes as `environment_uid`.",
 		fields: []field{
 			{attr: "display_name", path: p("name"), kind: stringField, description: "Name of the group in KCM (default: `name`); renaming it renames the group."},
 			{attr: "color", path: p("color"), kind: stringField, description: "Color of the group, e.g. `#d32f2f`."},
@@ -61,11 +75,16 @@ var kinds = []*kindResource{
 		},
 	},
 	{
-		typeName: "kafka_cluster", kind: "KafkaCluster",
+		typeName: "kafka_cluster", kind: "KafkaCluster", hasUID: true,
+		alternatives: [][2]string{{"group", "environment_uid"}},
 		description: "A Kafka cluster of KCM (Team and Enterprise editions). Only the attributes set are managed; secrets " +
 			"are names of files of the secrets directory of KCM (`KCM_IAC_SECRETS_DIR`), never values.",
 		fields: []field{
-			{attr: "group", path: p("group"), kind: stringField, required: true, forceNew: true, description: "KCM group of the cluster."},
+			{attr: "group", path: p("group"), kind: stringField, forceNew: true, ref: true, refAlt: "environment_uid",
+				description: "Name of the KCM group (the environment) of the cluster. Exactly one of `group` and `environment_uid` is set."},
+			{attr: "environment_uid", path: p("environmentUid"), kind: stringField, forceNew: true, ref: true, uidRef: true, refAlt: "group",
+				description: "Uid of the KCM group (the environment) of the cluster (`kcm_group.<name>.uid`, or the `kcm_environment` " +
+					"data source). It does not change when the environment is renamed. Exactly one of `group` and `environment_uid` is set."},
 			{attr: "display_name", path: p("name"), kind: stringField, description: "Name of the cluster in KCM (default: `name`)."},
 			{attr: "bootstrap_servers", path: p("bootstrapServers"), kind: stringField, description: "Bootstrap servers."},
 			{attr: "security_protocol", path: p("securityProtocol"), kind: stringField, description: "`PLAINTEXT`, `SSL`, `SASL_PLAINTEXT` or `SASL_SSL`."},
@@ -84,10 +103,11 @@ var kinds = []*kindResource{
 		},
 	},
 	{
-		typeName: "schema_registry", kind: "SchemaRegistry",
+		typeName: "schema_registry", hasUID: true, alternatives: childClusterAlternatives, kind: "SchemaRegistry",
 		description: "A Schema Registry of a Kafka cluster in KCM (Team and Enterprise editions).",
 		fields: []field{
 			clusterRef(),
+			clusterUIDRef(),
 			{attr: "display_name", path: p("name"), kind: stringField, description: "Name in KCM (default: `name`)."},
 			{attr: "url", path: p("url"), kind: stringField, description: "URL of the registry."},
 			{attr: "auth_username", path: p("auth", "username"), kind: stringField, description: "User name (basic authentication)."},
@@ -98,10 +118,11 @@ var kinds = []*kindResource{
 		},
 	},
 	{
-		typeName: "kafka_connect", kind: "KafkaConnect",
+		typeName: "kafka_connect", hasUID: true, alternatives: childClusterAlternatives, kind: "KafkaConnect",
 		description: "A Kafka Connect cluster of a Kafka cluster in KCM (Team and Enterprise editions).",
 		fields: []field{
 			clusterRef(),
+			clusterUIDRef(),
 			{attr: "display_name", path: p("name"), kind: stringField, description: "Name in KCM (default: `name`)."},
 			{attr: "url", path: p("url"), kind: stringField, description: "URL of the Connect REST API."},
 			{attr: "basic_auth_username", path: p("basicAuth", "username"), kind: stringField, description: "User name (basic authentication)."},
@@ -114,10 +135,11 @@ var kinds = []*kindResource{
 		},
 	},
 	{
-		typeName: "ksql_endpoint", kind: "KsqlEndpoint",
+		typeName: "ksql_endpoint", hasUID: true, alternatives: childClusterAlternatives, kind: "KsqlEndpoint",
 		description: "A ksqlDB endpoint of a Kafka cluster in KCM (Team and Enterprise editions).",
 		fields: []field{
 			clusterRef(),
+			clusterUIDRef(),
 			{attr: "display_name", path: p("name"), kind: stringField, description: "Name in KCM (default: `name`)."},
 			{attr: "base_url", path: p("baseUrl"), kind: stringField, description: "URL of the ksqlDB server."},
 			{attr: "auth_type", path: p("authType"), kind: stringField, description: "`NONE`, `BASIC`, `BEARER` or `SSL`."},
@@ -133,11 +155,12 @@ var kinds = []*kindResource{
 		},
 	},
 	{
-		typeName: "topic", kind: "Topic",
+		typeName: "topic", alternatives: childClusterAlternatives, kind: "Topic",
 		description: "A Kafka topic managed through KCM (Team and Enterprise editions). Partitions can only grow; only the " +
 			"configurations set are managed, one removed goes back to its default.",
 		fields: []field{
 			clusterRef(),
+			clusterUIDRef(),
 			{attr: "topic_name", path: p("name"), kind: stringField, forceNew: true, description: "Name of the topic (default: `name`)."},
 			{attr: "partitions", path: p("partitions"), kind: intField, description: "Number of partitions (can only grow)."},
 			{attr: "replication_factor", path: p("replicationFactor"), kind: intField, forceNew: true, description: "Replication factor, at creation."},
@@ -146,12 +169,13 @@ var kinds = []*kindResource{
 		},
 	},
 	{
-		typeName: "topic_metadata", kind: "TopicMetadata",
+		typeName: "topic_metadata", alternatives: childClusterAlternatives, kind: "TopicMetadata",
 		description: "The governance metadata KCM keeps for a topic (Team and Enterprise editions, KCM_METADATA module): " +
 			"description, tags, labels, classification, ownership, SLA, lifecycle, contract, producers, consumers. The " +
 			"metadata is the whole `spec_json`: a section left out is cleared.",
 		fields: []field{
 			clusterRef(),
+			clusterUIDRef(),
 			{attr: "topic", path: p("topic"), kind: stringField, forceNew: true, description: "Name of the topic (default: `name`)."},
 			{attr: "spec_json", path: p("spec"), kind: jsonField, required: true,
 				description: "The metadata as a JSON object (`jsonencode({...})`), the fields of the TopicMetadata spec: " +

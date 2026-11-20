@@ -27,13 +27,18 @@ type kindResource struct {
 	kind        string
 	description string
 	fields      []field
-	data        *providerData
+	// hasUID: KCM gives the object a stable uid (environments, Kafka clusters, connections): the computed attribute `uid`.
+	hasUID bool
+	// alternatives are pairs of attributes that reference the same object by names or by uid: exactly one is set.
+	alternatives [][2]string
+	data         *providerData
 }
 
 var (
 	_ resource.Resource                = (*kindResource)(nil)
 	_ resource.ResourceWithConfigure   = (*kindResource)(nil)
 	_ resource.ResourceWithImportState = (*kindResource)(nil)
+	_ resource.ResourceWithValidateConfig = (*kindResource)(nil)
 )
 
 func (r *kindResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -59,16 +64,44 @@ func (r *kindResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 			PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 		},
 	}
+	if r.hasUID {
+		attributes["uid"] = schema.StringAttribute{
+			Computed: true,
+			Description: "Stable uid of the object, assigned by KCM once and never changed, even when the object is renamed in " +
+				"KCM. Reference the object with it (`cluster_uid`, `environment_uid` of the objects that belong to it).",
+			PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+		}
+	}
 	for _, f := range r.fields {
 		attributes[f.attr] = schemaAttribute(f)
 	}
 	resp.Schema = schema.Schema{Description: r.description, Attributes: attributes}
 }
 
+// ValidateConfig: an object references another one by names or by uid, never both, and one of them.
+func (r *kindResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	for _, pair := range r.alternatives {
+		var first, second types.String
+		resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root(pair[0]), &first)...)
+		resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root(pair[1]), &second)...)
+		if resp.Diagnostics.HasError() || first.IsUnknown() || second.IsUnknown() {
+			continue
+		}
+		switch {
+		case !first.IsNull() && !second.IsNull():
+			resp.Diagnostics.AddAttributeError(path.Root(pair[1]), "Both "+pair[0]+" and "+pair[1]+" are set",
+				"The object is referenced by names ("+pair[0]+") or by uid ("+pair[1]+"), not both: keep one of them.")
+		case first.IsNull() && second.IsNull():
+			resp.Diagnostics.AddAttributeError(path.Root(pair[0]), "Missing "+pair[0]+" or "+pair[1],
+				"Set "+pair[0]+" (by names) or "+pair[1]+" (by uid) to say which object this one belongs to.")
+		}
+	}
+}
+
 // schemaAttribute: a field declared is managed; a field left out keeps the value KCM has (optional and computed).
 func schemaAttribute(f field) schema.Attribute {
 	optional := !f.required
-	computed := !f.required && f.kind != jsonField && f.kind != secretFileField
+	computed := !f.required && f.kind != jsonField && f.kind != secretFileField && !f.ref
 	switch f.kind {
 	case boolField:
 		modifiers := []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()}
@@ -117,6 +150,14 @@ func (r *kindResource) Configure(_ context.Context, req resource.ConfigureReques
 		return
 	}
 	r.data = data
+}
+
+// uidOf is the uid KCM gives the object (empty when KCM does not know it, e.g. a KCM older than 1.6.0).
+func uidOf(doc *client.Document) string {
+	if doc == nil || doc.Status == nil {
+		return ""
+	}
+	return doc.Status.UID
 }
 
 func (r *kindResource) hasJSON() bool {
@@ -196,6 +237,9 @@ func (r *kindResource) refresh(ctx context.Context, name string, plan getter, se
 	}
 	diags.Append(set(ctx, path.Root("id"), types.StringValue(r.kind+"/"+name))...)
 	diags.Append(set(ctx, path.Root("managed_by"), types.StringValue(current.Metadata.ManagedBy))...)
+	if r.hasUID {
+		diags.Append(set(ctx, path.Root("uid"), types.StringValue(uidOf(current)))...)
+	}
 	var computed []field
 	for _, f := range r.fields {
 		if unknown(ctx, f, plan) {
@@ -248,9 +292,14 @@ func (r *kindResource) Read(ctx context.Context, req resource.ReadRequest, resp 
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("id"), types.StringValue(r.kind+"/"+name.ValueString()))...)
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("managed_by"), types.StringValue(current.Metadata.ManagedBy))...)
+	if r.hasUID {
+		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("uid"), types.StringValue(uidOf(current)))...)
+	}
 	r.readSecrets(ctx, req.State, current.Spec)
-	keepScopePaths(ctx, r.fields, req.State, current.Spec)
-	resp.Diagnostics.Append(fromSpec(ctx, r.fields, current.Spec, &resp.State)...)
+	// the references by uid stay as configured, a reference by names is read back only when the state has no uid
+	fields := readable(ctx, r.fields, req.State)
+	keepScopePaths(ctx, fields, req.State, current.Spec)
+	resp.Diagnostics.Append(fromSpec(ctx, fields, current.Spec, &resp.State)...)
 	for _, f := range changedSecrets {
 		// null in the state: the next plan updates the object, which sends the new content
 		resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root(f.attr), types.StringNull())...)

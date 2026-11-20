@@ -43,7 +43,15 @@ type field struct {
 	forceNew bool
 	// scopePath: a KCM path (/groups/{group}/...) whose names may be percent-encoded in any way; KCM reads it back
 	// with its own encoding, so an equivalent value is not a change.
-	scopePath   bool
+	scopePath bool
+	// ref: a reference to another object (the cluster or the environment of the object). It has an alternative
+	// (refAlt, the attribute that references the same object by uid, or by names): exactly one of the two is set.
+	// A reference is never computed: a value KCM gave back would clash with the alternative.
+	ref bool
+	// uidRef: the reference is a uid. KCM does not write uids in the spec it gives back, so it is never read back.
+	uidRef bool
+	// refAlt: the attribute that references the same object the other way.
+	refAlt      string
 	description string
 }
 
@@ -160,6 +168,31 @@ func toSpec(ctx context.Context, fields []field, from getter) (map[string]interf
 		}
 	}
 	return spec, diags
+}
+
+// readable returns the fields to read back from KCM into a state. The references are special: a uid is never read back
+// (KCM does not put it in the spec), and a reference by names is only read back when the state has no reference by uid
+// (the object was imported, or declared by names): otherwise the value KCM gives would turn into a difference with a
+// configuration that references the object by uid.
+func readable(ctx context.Context, fields []field, state getter) []field {
+	set := func(attr string) bool {
+		var v types.String
+		if state.GetAttribute(ctx, path.Root(attr), &v).HasError() {
+			return false
+		}
+		return !v.IsNull() && !v.IsUnknown() && v.ValueString() != ""
+	}
+	var kept []field
+	for _, f := range fields {
+		if f.uidRef {
+			continue
+		}
+		if f.ref && f.refAlt != "" && set(f.refAlt) {
+			continue
+		}
+		kept = append(kept, f)
+	}
+	return kept
 }
 
 // unknown tells whether the attribute is unknown in a plan (left out of the configuration: KCM gives its value).

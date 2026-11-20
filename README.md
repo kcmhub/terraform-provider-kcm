@@ -44,7 +44,8 @@ provider "kcm" {
 | `kcm_topic` | Topic | 1.6.0 | Team, Enterprise |
 | `kcm_topic_metadata` | TopicMetadata | 1.6.0 | Team, Enterprise (KCM_METADATA module) |
 
-The data source `kcm_object` reads any object, managed or not.
+The data source `kcm_object` reads any object, managed or not. `kcm_environment` and `kcm_kafka_cluster` find an
+existing environment or Kafka cluster by name or by uid (see [Referencing objects by uid](#referencing-objects-by-uid)).
 
 The limits of your KCM edition apply to what Terraform declares as they do to what is created in the UI.
 
@@ -77,12 +78,11 @@ resource "kcm_kafka_cluster" "payments" {
 
 resource "kcm_topic" "orders" {
   name               = "prod-payments-orders"
-  cluster            = "/groups/prod/clusters/payments"
+  cluster_uid        = kcm_kafka_cluster.payments.uid # known once the cluster exists: created first, in the same apply
   topic_name         = "payments.orders"
   partitions         = 6
   replication_factor = 3
   configs            = { "retention.ms" = "604800000" }
-  depends_on         = [kcm_kafka_cluster.payments]
 }
 ```
 
@@ -99,13 +99,55 @@ More in [examples/provider/main.tf](examples/provider/main.tf) and [docs/index.m
 - Secrets are never in the configuration nor in the state: `*_file` attributes name files of the secrets directory of
   KCM (`KCM_IAC_SECRETS_DIR`, for example a mounted Kubernetes Secret). A secret left out keeps the value entered in
   KCM. A new content in the same file is found by the next plan (a warning on refresh) and sent by the apply.
-- A topic is declared after its cluster exists: Terraform orders it when the cluster is a resource of the same
-  configuration (use `depends_on`).
+- A topic is declared after its cluster exists: with `cluster_uid = kcm_kafka_cluster.<name>.uid` Terraform orders it
+  by itself, in the same apply as the cluster (a `cluster` path by names needs `depends_on`).
 - `terraform destroy` follows `deletion_policy`: `Retain` (default) keeps the object in KCM and stops managing it;
   `Delete` deletes it, only when the provider has `allow_destroy = true` (a topic is deleted with its messages).
 - Existing objects are imported by name: `terraform import kcm_topic.orders <name>` (the name of a managed object, or
   its export name, listed by `GET /api/v1/iac/export?kinds=Topic`). The first apply adopts an identical object without
   changing it.
+
+## Referencing objects by uid
+
+KCM gives every environment (`kcm_group`), Kafka cluster (`kcm_kafka_cluster`) and connection (`kcm_schema_registry`,
+`kcm_kafka_connect`, `kcm_ksql_endpoint`) a stable `uid`, assigned once and never changed, even when the object is renamed
+in KCM. It is a computed attribute of these resources. An object that belongs to another one names it by names or by
+uid, one of the two:
+
+| Resource | By names | By uid |
+|----------|----------|--------|
+| `kcm_kafka_cluster` | `group` | `environment_uid` |
+| `kcm_schema_registry`, `kcm_kafka_connect`, `kcm_ksql_endpoint`, `kcm_topic`, `kcm_topic_metadata` | `cluster` (`/groups/{group}/clusters/{cluster}`) | `cluster_uid` |
+
+Both, or none, is an error. A path by names breaks when the environment or the cluster is renamed in KCM; a uid does not.
+For an environment or a cluster that already exists, give its uid as a variable, or look it up with a data source:
+
+```hcl
+variable "cluster_uid" {
+  type = string # copied from the KCM console
+}
+
+data "kcm_environment" "prod" {
+  name = "prod" # or uid = "prod-1a2b3c"
+}
+
+data "kcm_kafka_cluster" "payments" {
+  name            = "payments" # a name needs its environment (environment_name or environment_uid)
+  environment_uid = data.kcm_environment.prod.uid
+  # or, alone: uid = "payments-d4e5f6"
+}
+
+resource "kcm_topic" "audit" {
+  name               = "prod-payments-audit"
+  cluster_uid        = data.kcm_kafka_cluster.payments.uid # or var.cluster_uid
+  partitions         = 3
+  replication_factor = 3
+}
+```
+
+`kcm_kafka_cluster` (data source) also gives `environment_uid`, `bootstrap_servers` and `path`, the
+`/groups/.../clusters/...` form for `cluster`. The data sources read through the REST API of KCM: the token needs to see the
+environment (and the cluster). Needs KCM 1.6.0 or later.
 
 ## Development
 
@@ -136,6 +178,7 @@ More variables enable more tests:
 | `KCM_ACC_ENTERPRISE=1` | adds a service account to the access test (a KCM with service accounts) |
 | `KCM_ACC_CLUSTER=/groups/{group}/clusters/{cluster}` | `TestAccTopic`: a topic on an existing cluster (Team or Enterprise) |
 | `KCM_ACC_KAFKA_BOOTSTRAP`, `KCM_ACC_KAFKA_USER`, `KCM_ACC_KAFKA_PASSWORD_FILE` | `TestAccResources`: a group, a cluster (SASL_PLAINTEXT, PLAIN), a topic and its metadata; the password file is a file of the secrets directory of KCM; needs the KCM_METADATA module |
+| same variables | `TestAccUIDReferences`: a cluster and its topic in the same apply by uid, the data sources, then the environment and the cluster renamed in KCM without any change to the objects declared by uid |
 | `KCM_ACC_SCHEMA_REGISTRY_URL`, `KCM_ACC_KSQL_URL` | adds a Schema Registry and a ksqlDB endpoint to `TestAccResources` |
 | `KCM_ACC_CONNECT_URL`, `KCM_ACC_CONNECT_PASSWORD_FILE` | adds a Kafka Connect cluster to `TestAccResources` |
 

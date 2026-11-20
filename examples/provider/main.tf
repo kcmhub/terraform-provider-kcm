@@ -57,7 +57,7 @@ resource "kcm_kafka_cluster" "payments" {
 
 resource "kcm_topic" "orders" {
   name               = "prod-payments-orders"
-  cluster            = "/groups/prod/clusters/payments"
+  cluster_uid        = kcm_kafka_cluster.payments.uid # known once the cluster exists: Terraform creates it first
   topic_name         = "payments.orders"
   partitions         = 6
   replication_factor = 3
@@ -65,12 +65,28 @@ resource "kcm_topic" "orders" {
     "retention.ms"   = "604800000"
     "cleanup.policy" = "delete"
   }
-  depends_on = [kcm_kafka_cluster.payments]
+}
+
+# An environment or a cluster that already exists: by uid (a variable, copied from the KCM console) or by a data source
+data "kcm_environment" "prod" {
+  name = "prod" # or uid = "prod-1a2b3c"
+}
+
+data "kcm_kafka_cluster" "existing" {
+  name            = "billing"
+  environment_uid = data.kcm_environment.prod.uid
+}
+
+resource "kcm_topic" "invoices" {
+  name               = "prod-billing-invoices"
+  cluster_uid        = data.kcm_kafka_cluster.existing.uid
+  partitions         = 3
+  replication_factor = 3
 }
 
 resource "kcm_topic_metadata" "orders" {
   name    = "prod-payments-orders"
-  cluster = kcm_topic.orders.cluster
+  cluster_uid = kcm_topic.orders.cluster_uid
   topic   = kcm_topic.orders.topic_name
   spec_json = jsonencode({
     description    = "Orders placed by the customers"
