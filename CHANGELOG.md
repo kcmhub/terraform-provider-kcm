@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0 (November 22, 2026)
 
 - Resources for the access of KCM: `kcm_role_group`, `kcm_service_account`, `kcm_role_binding`.
 - Resources for KCM groups, Kafka clusters and their connections: `kcm_group`, `kcm_kafka_cluster`,
